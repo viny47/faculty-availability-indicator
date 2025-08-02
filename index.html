@@ -99,17 +99,18 @@
     useEffect(() => {
       // These global variables are provided by the canvas environment
       const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-      // *** IMPORTANT: REPLACE THE FOLLOWING EMPTY OBJECT WITH YOUR FIREBASE CONFIGURATION OBJECT ***
-      // Example: const firebaseConfig = { apiKey: "...", authDomain: "...", ... };
+      
+      // IMPORTANT: The firebaseConfig object has been populated with your provided details.
       const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-  apiKey: "AIzaSyALYNXheBjsrjebP7VFxbysr8wh1dI615o",
-  authDomain: "faculty-availability-ind-ad412.firebaseapp.com",
-  projectId: "faculty-availability-ind-ad412",
-  storageBucket: "faculty-availability-ind-ad412.firebasestorage.app",
-  messagingSenderId: "224915675942",
-  appId: "1:224915675942:web:38a0f87c136b9c23c43fe7",
-  measurementId: "G-NS88ZHFDB6"
-};
+        apiKey: "AIzaSyALYNXheBjsrjebP7VFxbysr8wh1dI615o",
+        authDomain: "faculty-availability-ind-ad412.firebaseapp.com",
+        projectId: "faculty-availability-ind-ad412",
+        storageBucket: "faculty-availability-ind-ad412.firebasestorage.app",
+        messagingSenderId: "224915675942",
+        appId: "1:224915675942:web:38a0f87c136b9c23c43fe7",
+        measurementId: "G-NS88ZHFDB6"
+      };
+      
       const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
       try {
