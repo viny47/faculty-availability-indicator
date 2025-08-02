@@ -14,16 +14,27 @@
     <!-- Firebase Libraries from CDN -->
     <script type="module">
       import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-      import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+      import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
       import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
       
       // We'll expose these globally for the main script
-      window.firebase = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, doc, setDoc, onSnapshot, getDoc };
+      window.firebase = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, doc, setDoc, onSnapshot, getDoc };
     </script>
     <!-- QR Code Library from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     <!-- UUID Library from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/uuid@8.3.2/dist/umd/uuidv4.min.js"></script>
+    <!-- Lucide React for icons -->
+    <script src="https://unpkg.com/lucide-react@0.364.0/dist/umd/lucide-react.min.js"></script>
+    <style>
+      .fade-in {
+        animation: fadeIn 0.5s ease-in-out;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+    </style>
 </head>
 <body class="bg-gray-100 font-sans antialiased">
 
@@ -31,7 +42,28 @@
 
 <script type="text/babel">
   const { useState, useEffect } = React;
-  const { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, getFirestore, doc, setDoc, onSnapshot, getDoc } = window.firebase;
+  const { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getFirestore, doc, setDoc, onSnapshot, getDoc } = window.firebase;
+  const { Clipboard } = window.lucideReact;
+
+  // Utility function to copy text to clipboard
+  const copyToClipboard = (text) => {
+    // This is the fallback for older browsers or if the clipboard API isn't available
+    if (!navigator.clipboard) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      console.log('Copied to clipboard using fallback successfully');
+    } else {
+      navigator.clipboard.writeText(text).then(() => {
+        console.log('Copied to clipboard successfully');
+      }).catch(err => {
+        console.error('Failed to copy text: ', err);
+      });
+    }
+  };
 
   // React component to render the main application
   const App = () => {
@@ -44,6 +76,7 @@
     const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
     const [facultyData, setFacultyData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [loadingMessage, setLoadingMessage] = useState("Initializing app...");
     const [error, setError] = useState(null);
 
     // Define the base URL for the student view
@@ -76,6 +109,8 @@
         setDb(firestoreDb);
         setAuth(firebaseAuth);
 
+        // This function attempts to sign in and handles potential errors.
+        // It's crucial that it runs only once.
         const signIn = async () => {
           try {
             if (initialAuthToken) {
@@ -83,30 +118,50 @@
             } else {
               await signInAnonymously(firebaseAuth);
             }
-            const user = firebaseAuth.currentUser;
-            if (user) {
-              setUserId(user.uid);
-              setIsAuthReady(true);
-              console.log("Firebase auth successful.");
-            }
           } catch (e) {
             console.error("Firebase authentication failed:", e);
-            setError("Failed to authenticate with Firebase.");
+            setError("Failed to authenticate with Firebase. Check your security rules or project configuration.");
+          } finally {
+            // This is the key change. We ensure isAuthReady is always set to true
+            // after the sign-in attempt, so the UI can move past the loading screen
+            // and display the error if one occurred.
+            setIsAuthReady(true);
           }
         };
+
+        // Set up the listener first to react to auth state changes.
+        const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+            if (user) {
+              setUserId(user.uid);
+              console.log("Firebase auth state changed. User is signed in:", user.uid);
+            } else {
+              setUserId(null);
+              console.log("Firebase auth state changed. No user signed in.");
+            }
+        });
+
+        // Then, trigger the sign-in process.
         signIn();
+
+        return () => unsubscribe(); // Cleanup the listener on component unmount.
       } catch (e) {
         console.error("Firebase initialization failed:", e);
-        setError("Failed to initialize Firebase.");
+        setError("Failed to initialize Firebase. Check your project configuration.");
+        setIsAuthReady(true); // Also set true here on initialization failure
       }
     }, []);
 
     // Handle URL parsing and data fetching
     useEffect(() => {
+      // This effect now depends on isAuthReady, so it will only run after the
+      // initial authentication attempt is complete.
       if (!isAuthReady || !db) return;
 
       const urlParams = new URLSearchParams(window.location.search);
       const idFromUrl = urlParams.get('facultyId');
+      
+      const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
       if (idFromUrl) {
         // Student view logic
         setFacultyId(idFromUrl);
@@ -126,7 +181,7 @@
           setLoading(false);
         }, (err) => {
           console.error("Error fetching data:", err);
-          setError("Error fetching real-time data.");
+          setError("Error fetching real-time data. Check Firebase security rules for public data.");
           setLoading(false);
         });
 
@@ -182,6 +237,7 @@
         }
       } catch (e) {
         console.error("Error fetching initial status:", e);
+        setError("Error fetching initial status. Check Firebase security rules for public data.");
       }
     };
 
@@ -202,13 +258,13 @@
         console.log(`Status updated to: ${newStatus}`);
       } catch (e) {
         console.error("Error updating status:", e);
-        setError("Failed to update status.");
+        setError("Failed to update status. Check Firebase security rules for public data.");
       }
     };
 
     // Render the faculty view
     const renderFacultyView = () => (
-      <div className="flex flex-col items-center justify-center p-6 bg-gray-50 min-h-screen">
+      <div className="flex flex-col items-center justify-center p-6 bg-gray-50 min-h-screen fade-in">
         <div className="bg-white shadow-xl rounded-2xl p-8 max-w-md w-full text-center border border-gray-200">
           <h1 className="text-3xl font-bold mb-4 text-gray-800">Your Availability Status</h1>
           <p className="text-sm text-gray-600 mb-6">
@@ -221,9 +277,17 @@
             </div>
           ) : (
             <div className="w-64 h-64 mx-auto rounded-lg bg-gray-200 flex items-center justify-center text-gray-500">
-              <p>Generating QR Code...</p>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-500"></div>
             </div>
           )}
+
+          <div className="flex items-center justify-center mt-4">
+              <span className="text-gray-500 text-sm">QR Code URL:</span>
+              <a href={baseUrl + facultyId} target="_blank" rel="noopener noreferrer" className="ml-2 text-indigo-600 hover:underline">View link</a>
+              <button onClick={() => copyToClipboard(baseUrl + facultyId)} className="ml-2 text-gray-400 hover:text-indigo-500 transition-colors duration-200">
+                <Clipboard size={16} />
+              </button>
+          </div>
 
           <div className="mt-6">
             <p className="text-lg font-semibold text-gray-700">Current Status:</p>
@@ -250,13 +314,16 @@
         </div>
         <div className="mt-4 p-4 text-center text-sm text-gray-500">
           Your unique faculty ID is: <code className="bg-gray-200 px-2 py-1 rounded-md font-mono">{facultyId}</code>
+          <button onClick={() => copyToClipboard(facultyId)} className="ml-2 text-gray-400 hover:text-indigo-500 transition-colors duration-200">
+            <Clipboard size={16} />
+          </button>
         </div>
       </div>
     );
 
     // Render the student view
     const renderStudentView = () => (
-      <div className="flex flex-col items-center justify-center p-6 bg-gray-50 min-h-screen">
+      <div className="flex flex-col items-center justify-center p-6 bg-gray-50 min-h-screen fade-in">
         <div className="bg-white shadow-xl rounded-2xl p-8 max-w-md w-full text-center border border-gray-200">
           <h1 className="text-3xl font-bold mb-4 text-gray-800">Faculty Availability</h1>
           <p className="text-sm text-gray-600 mb-6">
@@ -299,11 +366,19 @@
 
     // Show a loading indicator until Firebase is ready
     if (!isAuthReady) {
+      // Start a timeout to change the message after a delay
+      useEffect(() => {
+        const timer = setTimeout(() => {
+          setLoadingMessage("Still initializing... Check your browser's developer console for errors.");
+        }, 5000); // Change message after 5 seconds
+        return () => clearTimeout(timer);
+      }, []);
+
       return (
         <div className="flex items-center justify-center min-h-screen bg-gray-100">
           <div className="animate-pulse flex flex-col items-center">
             <div className="h-12 w-12 bg-indigo-200 rounded-full"></div>
-            <p className="mt-4 text-indigo-700 font-semibold">Initializing app...</p>
+            <p className="mt-4 text-indigo-700 font-semibold text-center">{loadingMessage}</p>
           </div>
         </div>
       );
@@ -312,7 +387,7 @@
     // Show an error message if something went wrong
     if (error) {
       return (
-        <div className="flex items-center justify-center min-h-screen bg-red-100">
+        <div className="flex items-center justify-center min-h-screen bg-red-100 fade-in">
           <div className="p-8 bg-white shadow-lg rounded-xl text-center">
             <h2 className="text-2xl font-bold text-red-700">Application Error</h2>
             <p className="mt-2 text-red-600">{error}</p>
